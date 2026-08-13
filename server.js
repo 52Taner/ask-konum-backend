@@ -1,11 +1,6 @@
 const express = require("express");
 const cors = require("cors");
 
-const app = express();
-
-// JSON body'leri okuyabilmek için
-app.use(express.json());
-
 const {
   initializeApp,
   applicationDefault,
@@ -24,27 +19,28 @@ const {
 } = require("firebase-admin/auth");
 
 // ============================================================
-// FIREBASE ADMIN
+// APP
 // ============================================================
 
-initializeApp({
-  credential: applicationDefault(),
-  projectId: "ask-konum",
-});
-
-const db = getFirestore();
-
-
+const app = express();
 
 // ============================================================
 // MIDDLEWARE
 // ============================================================
+
+// JSON body'leri route'lardan önce oku.
+app.use(
+  express.json({
+    limit: "1mb",
+  })
+);
 
 const corsOptions = {
   origin: [
     "https://ask-konum.web.app",
     "https://ask-konum.firebaseapp.com",
     "http://localhost:5000",
+    "http://localhost:3000",
   ],
   methods: [
     "GET",
@@ -55,23 +51,54 @@ const corsOptions = {
     "Content-Type",
     "Authorization",
   ],
+  optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
 
+// Preflight istekleri
 app.options(
   "/send-notification",
   cors(corsOptions)
 );
+
+// Debug log
+app.use((req, res, next) => {
+  console.log(
+    `[${new Date().toISOString()}] ${req.method} ${req.path}`
+  );
+
+  next();
+});
+
+// ============================================================
+// FIREBASE ADMIN
+// ============================================================
+
+initializeApp({
+  credential: applicationDefault(),
+  projectId: "ask-konum",
+});
+
+const db = getFirestore();
 
 // ============================================================
 // TEST
 // ============================================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
-    message: "Aşk Konumu bildirim sunucusu çalışıyor ❤️",
+    message:
+        "Aşk Konumu bildirim sunucusu çalışıyor ❤️",
+  });
+});
+
+// Render Health Check için
+app.get("/healthz", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "healthy",
   });
 });
 
@@ -86,7 +113,7 @@ async function verifyFirebaseUser(
 ) {
   try {
     const authorization =
-      req.headers.authorization || "";
+        req.headers.authorization || "";
 
     if (
       !authorization.startsWith(
@@ -101,12 +128,20 @@ async function verifyFirebaseUser(
     }
 
     const idToken =
-      authorization.substring(7);
+        authorization.substring(7).trim();
+
+    if (!idToken) {
+      return res.status(401).json({
+        success: false,
+        error:
+            "Firebase kullanıcı tokenı boş.",
+      });
+    }
 
     const decodedToken =
-      await getAuth().verifyIdToken(
-        idToken
-      );
+        await getAuth().verifyIdToken(
+          idToken
+        );
 
     req.user = decodedToken;
 
@@ -137,15 +172,20 @@ app.post(
       const senderId =
           req.user.uid;
 
+      console.log(
+        "REQUEST BODY:",
+        req.body
+      );
+
       const {
         partnerId,
         title,
         body,
         type,
-      } = req.body;
+      } = req.body || {};
 
       // ------------------------------------------------------
-      // KONTROL
+      // REQUEST KONTROLÜ
       // ------------------------------------------------------
 
       if (
@@ -160,7 +200,7 @@ app.post(
       }
 
       // ------------------------------------------------------
-      // GÖNDEREN KULLANICININ PARTNERİNİ KONTROL ET
+      // GÖNDEREN KULLANICI
       // ------------------------------------------------------
 
       const senderDoc =
@@ -180,12 +220,27 @@ app.post(
       }
 
       const senderData =
-          senderDoc.data();
+          senderDoc.data() || {};
+
+      // ------------------------------------------------------
+      // PARTNER EŞLEŞME KONTROLÜ
+      // ------------------------------------------------------
 
       if (
         senderData.partnerId !==
         partnerId
       ) {
+        console.warn(
+          "PARTNER YETKİ HATASI:",
+          {
+            senderId,
+            expectedPartnerId:
+                senderData.partnerId,
+            requestedPartnerId:
+                partnerId,
+          }
+        );
+
         return res.status(403).json({
           success: false,
           error:
@@ -214,7 +269,7 @@ app.post(
       }
 
       const partnerData =
-          partnerDoc.data();
+          partnerDoc.data() || {};
 
       const fcmToken =
           partnerData.fcmToken;
@@ -231,16 +286,30 @@ app.post(
       }
 
       // ------------------------------------------------------
-      // BİLDİRİM
+      // BİLDİRİM METNİ
       // ------------------------------------------------------
 
-      const notificationTitle =
-          title ||
-          "Aşk Konumu ❤️";
+ const notificationTitle =
+    typeof title === "string" &&
+    title.trim().length > 0
+        ? title.trim()
+        : "Aşk Konumu ❤️";
 
-      const notificationBody =
-          body ||
-          "Yeni bir bildirimin var.";
+const notificationBody =
+    typeof body === "string" &&
+    body.trim().length > 0
+        ? body.trim()
+        : "Yeni bir bildirimin var.";
+
+const notificationType =
+    typeof type === "string" &&
+    type.trim().length > 0
+        ? type.trim()
+        : "general";
+
+      // ------------------------------------------------------
+      // FCM MESSAGE
+      // ------------------------------------------------------
 
       const message = {
         token: fcmToken,
@@ -256,24 +325,27 @@ app.post(
         data: {
           type:
               String(
-                type ||
-                "general"
+                notificationType
               ),
 
           senderId:
-              String(senderId),
+              String(
+                senderId
+              ),
 
           partnerId:
-              String(partnerId),
+              String(
+                partnerId
+              ),
         },
 
         webpush: {
           notification: {
             icon:
-                "/icons/Icon-192.png",
+                "https://ask-konum.web.app/icons/Icon-192.png",
 
             badge:
-                "/icons/Icon-192.png",
+                "https://ask-konum.web.app/icons/Icon-192.png",
           },
 
           fcmOptions: {
@@ -282,6 +354,10 @@ app.post(
           },
         },
       };
+
+      // ------------------------------------------------------
+      // SEND
+      // ------------------------------------------------------
 
       const messageId =
           await getMessaging()
@@ -292,7 +368,7 @@ app.post(
         messageId
       );
 
-      return res.json({
+      return res.status(200).json({
         success: true,
         messageId,
       });
@@ -305,7 +381,7 @@ app.post(
       return res.status(500).json({
         success: false,
         error:
-            error.message ||
+            error?.message ||
             "Bildirim gönderilemedi.",
       });
     }
@@ -313,13 +389,25 @@ app.post(
 );
 
 // ============================================================
+// 404
+// ============================================================
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error:
+        "Endpoint bulunamadı.",
+  });
+});
+
+// ============================================================
 // SERVER
 // ============================================================
 
 const PORT =
-    process.env.PORT || 3000;
+    process.env.PORT || 10000;
 
-app.listen(
+const server = app.listen(
   PORT,
   "0.0.0.0",
   () => {
@@ -328,7 +416,10 @@ app.listen(
     );
 
     console.log(
-      `🚀 Sunucu çalışıyor: ${PORT}`
+      `🚀 Sunucu 0.0.0.0:${PORT} üzerinde çalışıyor`
     );
   }
 );
+
+server.keepAliveTimeout = 120000;
+server.headersTimeout = 120000;
