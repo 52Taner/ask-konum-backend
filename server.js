@@ -35,12 +35,28 @@ const app = express();
 // MIDDLEWARE
 // ============================================================
 
-app.use(cors());
+const corsOptions = {
+  origin: [
+    "https://ask-konum.web.app",
+    "https://ask-konum.firebaseapp.com",
+    "http://localhost:5000",
+  ],
+  methods: [
+    "GET",
+    "POST",
+    "OPTIONS",
+  ],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+  ],
+};
 
-app.use(
-  express.json({
-    limit: "1mb",
-  })
+app.use(cors(corsOptions));
+
+app.options(
+  "/send-notification",
+  cors(corsOptions)
 );
 
 // ============================================================
@@ -298,12 +314,16 @@ app.post(
 const PORT =
     process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(
-    "❤️ Aşk Konumu Backend"
-  );
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      "❤️ Aşk Konumu Backend"
+    );
 
-  console.log(
-    `🚀 Sunucu çalışıyor: http://localhost:${PORT}`
-  );
-});
+    console.log(
+      `🚀 Sunucu çalışıyor: ${PORT}`
+    );
+  }
+);
