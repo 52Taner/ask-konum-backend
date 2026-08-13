@@ -116,9 +116,7 @@ async function verifyFirebaseUser(
         req.headers.authorization || "";
 
     if (
-      !authorization.startsWith(
-        "Bearer "
-      )
+      !authorization.startsWith("Bearer ")
     ) {
       return res.status(401).json({
         success: false,
@@ -138,10 +136,25 @@ async function verifyFirebaseUser(
       });
     }
 
+    console.log(
+      "AUTH TOKEN GELDİ:",
+      idToken ? "EVET" : "HAYIR"
+    );
+
+    console.log(
+      "AUTH TOKEN UZUNLUĞU:",
+      idToken.length
+    );
+
     const decodedToken =
         await getAuth().verifyIdToken(
           idToken
         );
+
+    console.log(
+      "AUTH BAŞARILI UID:",
+      decodedToken.uid
+    );
 
     req.user = decodedToken;
 
@@ -404,19 +417,14 @@ app.use((req, res) => {
 // SERVER
 // ============================================================
 
-const PORT =
-    process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 const server = app.listen(
   PORT,
   "0.0.0.0",
   () => {
     console.log(
-      "❤️ Aşk Konumu Backend"
-    );
-
-    console.log(
-      `🚀 Sunucu 0.0.0.0:${PORT} üzerinde çalışıyor`
+      `Sunucu 0.0.0.0:${PORT} üzerinde çalışıyor`
     );
   }
 );
