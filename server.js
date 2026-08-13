@@ -1,6 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 
+const app = express();
+
+// JSON body'leri okuyabilmek için
+app.use(express.json());
+
 const {
   initializeApp,
   applicationDefault,
@@ -29,7 +34,7 @@ initializeApp({
 
 const db = getFirestore();
 
-const app = express();
+
 
 // ============================================================
 // MIDDLEWARE
