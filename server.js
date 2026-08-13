@@ -3,7 +3,7 @@ const cors = require("cors");
 
 const {
   initializeApp,
-  applicationDefault,
+  cert,
 } = require("firebase-admin/app");
 
 const {
@@ -75,8 +75,11 @@ app.use((req, res, next) => {
 // FIREBASE ADMIN
 // ============================================================
 
+const serviceAccount =
+    require("/etc/secrets/serviceAccountKey.json");
+
 initializeApp({
-  credential: applicationDefault(),
+  credential: cert(serviceAccount),
   projectId: "ask-konum",
 });
 
