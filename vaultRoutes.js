@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { getAuth } = require("firebase-admin/auth");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 
 const {
   createClient,
@@ -222,12 +223,11 @@ router.put(
         });
       }
 
-      const configRef =
-        admin
-          .firestore()
-          .collection(
-            'private_vault_configs',
-          )
+  const configRef =
+    getFirestore()
+        .collection(
+            "private_vault_configs",
+        )
           .doc(uid);
 
       const oldDocument =
@@ -239,10 +239,7 @@ router.put(
         iterations,
         salt,
         wrappedKey,
-        updatedAt:
-          admin.firestore
-            .FieldValue
-            .serverTimestamp(),
+       updatedAt: FieldValue.serverTimestamp(),
       };
 
       if (!oldDocument.exists) {
@@ -298,12 +295,11 @@ router.get(
       const uid =
         req.firebaseUser.uid;
 
-      const document =
-        await admin
-          .firestore()
-          .collection(
-            'private_vault_configs',
-          )
+const document =
+    await getFirestore()
+        .collection(
+            "private_vault_configs",
+        )
           .doc(uid)
           .get();
 
