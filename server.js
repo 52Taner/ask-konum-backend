@@ -40,18 +40,24 @@ const corsOptions = {
   origin: [
     "https://ask-konum.web.app",
     "https://ask-konum.firebaseapp.com",
-    "http://localhost:5000",
-    "http://localhost:3000",
+    /^http:\/\/localhost:\d+$/,
+    /^http:\/\/127\.0\.0\.1:\d+$/,
   ],
+
   methods: [
     "GET",
     "POST",
+    "PUT",
+    "DELETE",
     "OPTIONS",
   ],
+
   allowedHeaders: [
     "Content-Type",
     "Authorization",
+    "Accept",
   ],
+
   optionsSuccessStatus: 204,
 };
 
