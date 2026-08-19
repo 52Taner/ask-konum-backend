@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-
+const vaultRoutes =
+  require('./vaultRoutes');
 const {
   initializeApp,
   cert,
