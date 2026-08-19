@@ -120,7 +120,233 @@ async function verifyFirebaseUser(
     });
   }
 }
+// ============================================================
+// BASE64URL DOĞRULAMA
+// ============================================================
 
+function decodeBase64Url(
+  value,
+) {
+  try {
+    if (
+      typeof value !== 'string' ||
+      value.length === 0 ||
+      value.length > 500 ||
+      !/^[A-Za-z0-9_-]+={0,2}$/.test(
+        value,
+      )
+    ) {
+      return null;
+    }
+
+    const decoded =
+      Buffer.from(
+        value,
+        'base64url',
+      );
+
+    if (decoded.length === 0) {
+      return null;
+    }
+
+    return decoded;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ============================================================
+// KASA ANAHTAR ZARFINI KAYDET
+// PUT /api/vault/key-envelope
+// ============================================================
+
+router.put(
+  '/key-envelope',
+  verifyFirebaseUser,
+  async (req, res) => {
+    try {
+      const uid =
+        req.firebaseUser.uid;
+
+      const {
+        version,
+        iterations,
+        salt,
+        wrappedKey,
+      } = req.body || {};
+
+      if (version !== 1) {
+        return res.status(400).json({
+          error:
+            'Geçersiz kasa sürümü.',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          iterations,
+        ) ||
+        iterations < 100000 ||
+        iterations > 2000000
+      ) {
+        return res.status(400).json({
+          error:
+            'Geçersiz parola güvenlik ayarı.',
+        });
+      }
+
+      const saltBytes =
+        decodeBase64Url(salt);
+
+      const wrappedKeyBytes =
+        decodeBase64Url(
+          wrappedKey,
+        );
+
+      // 16 byte rastgele salt
+      if (
+        saltBytes == null ||
+        saltBytes.length !== 16
+      ) {
+        return res.status(400).json({
+          error:
+            'Geçersiz kasa salt değeri.',
+        });
+      }
+
+      // AES-GCM:
+      // 12 byte nonce + 32 byte anahtar + 16 byte MAC
+      if (
+        wrappedKeyBytes == null ||
+        wrappedKeyBytes.length !== 60
+      ) {
+        return res.status(400).json({
+          error:
+            'Geçersiz şifrelenmiş kasa anahtarı.',
+        });
+      }
+
+      const configRef =
+        admin
+          .firestore()
+          .collection(
+            'private_vault_configs',
+          )
+          .doc(uid);
+
+      const oldDocument =
+        await configRef.get();
+
+      const documentData = {
+        ownerId: uid,
+        version,
+        iterations,
+        salt,
+        wrappedKey,
+        updatedAt:
+          admin.firestore
+            .FieldValue
+            .serverTimestamp(),
+      };
+
+      if (!oldDocument.exists) {
+        documentData.createdAt =
+          admin.firestore
+            .FieldValue
+            .serverTimestamp();
+      }
+
+      await configRef.set(
+        documentData,
+        {
+          merge: true,
+        },
+      );
+
+      res.set(
+        'Cache-Control',
+        'no-store',
+      );
+
+      return res.status(
+        oldDocument.exists
+          ? 200
+          : 201,
+      ).json({
+        success: true,
+      });
+    } catch (error) {
+      console.error(
+        'Kasa anahtar kaydetme hatası:',
+        error.message,
+      );
+
+      return res.status(500).json({
+        error:
+          'Kasa anahtar bilgisi kaydedilemedi.',
+      });
+    }
+  },
+);
+
+// ============================================================
+// KASA ANAHTAR ZARFINI GETİR
+// GET /api/vault/key-envelope
+// ============================================================
+
+router.get(
+  '/key-envelope',
+  verifyFirebaseUser,
+  async (req, res) => {
+    try {
+      const uid =
+        req.firebaseUser.uid;
+
+      const document =
+        await admin
+          .firestore()
+          .collection(
+            'private_vault_configs',
+          )
+          .doc(uid)
+          .get();
+
+      res.set(
+        'Cache-Control',
+        'no-store',
+      );
+
+      if (!document.exists) {
+        return res.status(404).json({
+          error:
+            'Kasa anahtarı henüz oluşturulmamış.',
+        });
+      }
+
+      const data =
+        document.data() || {};
+
+      return res.status(200).json({
+        version: data.version,
+        iterations:
+          data.iterations,
+        salt: data.salt,
+        wrappedKey:
+          data.wrappedKey,
+      });
+    } catch (error) {
+      console.error(
+        'Kasa anahtar okuma hatası:',
+        error.message,
+      );
+
+      return res.status(500).json({
+        error:
+          'Kasa anahtar bilgisi alınamadı.',
+      });
+    }
+  },
+);
 // ============================================================
 // ŞİFRELİ FOTOĞRAF YÜKLE
 // POST /api/vault/upload
