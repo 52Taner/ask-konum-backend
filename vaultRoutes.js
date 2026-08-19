@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
+const { getAuth } = require("firebase-admin/auth");
 
 const {
   createClient,
@@ -85,12 +86,7 @@ async function verifyFirebaseUser(
 
     // true: iptal edilmiş oturumları da kontrol eder.
     const decodedToken =
-      await admin
-        .auth()
-        .verifyIdToken(
-          idToken,
-          true,
-        );
+    await getAuth().verifyIdToken(idToken);
 
     const uid =
       (decodedToken.uid || '').trim();
