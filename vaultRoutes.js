@@ -1,9 +1,10 @@
 const express = require('express');
 const crypto = require('crypto');
-const admin = require('firebase-admin');
-const { getAuth } = require("firebase-admin/auth");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-
+const { getAuth } = require('firebase-admin/auth');
+const {
+  getFirestore,
+  FieldValue,
+} = require('firebase-admin/firestore');
 const {
   createClient,
 } = require('@supabase/supabase-js');
@@ -14,10 +15,7 @@ const supabaseUrl =
   (process.env.SUPABASE_URL || '').trim();
 
 const supabaseSecretKey =
-  (
-    process.env.SUPABASE_SECRET_KEY ||
-    ''
-  ).trim();
+  (process.env.SUPABASE_SECRET_KEY || '').trim();
 
 const vaultBucket =
   (
@@ -49,6 +47,11 @@ const supabaseAdmin = createClient(
   },
 );
 
+function setPrivateResponseHeaders(res) {
+  res.set('Cache-Control', 'no-store');
+  res.set('Pragma', 'no-cache');
+}
+
 // ============================================================
 // FIREBASE KULLANICISINI DOĞRULA
 // ============================================================
@@ -62,11 +65,7 @@ async function verifyFirebaseUser(
     const authorization =
       req.get('authorization') || '';
 
-    if (
-      !authorization.startsWith(
-        'Bearer ',
-      )
-    ) {
+    if (!authorization.startsWith('Bearer ')) {
       return res.status(401).json({
         error:
           'Kimlik doğrulama bilgisi eksik.',
@@ -74,9 +73,7 @@ async function verifyFirebaseUser(
     }
 
     const idToken =
-      authorization
-        .substring(7)
-        .trim();
+      authorization.substring(7).trim();
 
     if (!idToken) {
       return res.status(401).json({
@@ -85,9 +82,12 @@ async function verifyFirebaseUser(
       });
     }
 
-    // true: iptal edilmiş oturumları da kontrol eder.
+    // İptal edilmiş oturumları da kontrol eder.
     const decodedToken =
-    await getAuth().verifyIdToken(idToken);
+      await getAuth().verifyIdToken(
+        idToken,
+        true,
+      );
 
     const uid =
       (decodedToken.uid || '').trim();
@@ -103,12 +103,11 @@ async function verifyFirebaseUser(
     }
 
     req.firebaseUser = decodedToken;
-
     return next();
   } catch (error) {
     console.error(
       'Vault kimlik doğrulama hatası:',
-      error.message,
+      error?.code || error?.message,
     );
 
     return res.status(401).json({
@@ -117,30 +116,24 @@ async function verifyFirebaseUser(
     });
   }
 }
+
 // ============================================================
 // BASE64URL DOĞRULAMA
 // ============================================================
 
-function decodeBase64Url(
-  value,
-) {
+function decodeBase64Url(value) {
   try {
     if (
       typeof value !== 'string' ||
       value.length === 0 ||
       value.length > 500 ||
-      !/^[A-Za-z0-9_-]+={0,2}$/.test(
-        value,
-      )
+      !/^[A-Za-z0-9_-]+={0,2}$/.test(value)
     ) {
       return null;
     }
 
     const decoded =
-      Buffer.from(
-        value,
-        'base64url',
-      );
+      Buffer.from(value, 'base64url');
 
     if (decoded.length === 0) {
       return null;
@@ -161,9 +154,10 @@ router.put(
   '/key-envelope',
   verifyFirebaseUser,
   async (req, res) => {
+    setPrivateResponseHeaders(res);
+
     try {
-      const uid =
-        req.firebaseUser.uid;
+      const uid = req.firebaseUser.uid;
 
       const {
         version,
@@ -174,15 +168,12 @@ router.put(
 
       if (version !== 1) {
         return res.status(400).json({
-          error:
-            'Geçersiz kasa sürümü.',
+          error: 'Geçersiz kasa sürümü.',
         });
       }
 
       if (
-        !Number.isInteger(
-          iterations,
-        ) ||
+        !Number.isInteger(iterations) ||
         iterations < 100000 ||
         iterations > 2000000
       ) {
@@ -196,9 +187,7 @@ router.put(
         decodeBase64Url(salt);
 
       const wrappedKeyBytes =
-        decodeBase64Url(
-          wrappedKey,
-        );
+        decodeBase64Url(wrappedKey);
 
       // 16 byte rastgele salt
       if (
@@ -223,15 +212,12 @@ router.put(
         });
       }
 
-  const configRef =
-    getFirestore()
-        .collection(
-            "private_vault_configs",
-        )
-          .doc(uid);
+      const firestore = getFirestore();
 
-      const oldDocument =
-        await configRef.get();
+      const configRef =
+        firestore
+          .collection('private_vault_configs')
+          .doc(uid);
 
       const documentData = {
         ownerId: uid,
@@ -239,39 +225,48 @@ router.put(
         iterations,
         salt,
         wrappedKey,
-       updatedAt: FieldValue.serverTimestamp(),
+        createdAt:
+          FieldValue.serverTimestamp(),
+        updatedAt:
+          FieldValue.serverTimestamp(),
       };
 
-      if (!oldDocument.exists) {
-        documentData.createdAt =
-          admin.firestore
-            .FieldValue
-            .serverTimestamp();
+      // Var olan anahtar zarfının yanlışlıkla üzerine
+      // yazılmasını işlem (transaction) içinde engeller.
+      const created =
+        await firestore.runTransaction(
+          async (transaction) => {
+            const existing =
+              await transaction.get(configRef);
+
+            if (existing.exists) {
+              return false;
+            }
+
+            transaction.set(
+              configRef,
+              documentData,
+            );
+
+            return true;
+          },
+        );
+
+      if (!created) {
+        return res.status(409).json({
+          error:
+            'Kasa anahtarı zaten mevcut. '
+            + 'Üzerine yazılmadı.',
+        });
       }
 
-      await configRef.set(
-        documentData,
-        {
-          merge: true,
-        },
-      );
-
-      res.set(
-        'Cache-Control',
-        'no-store',
-      );
-
-      return res.status(
-        oldDocument.exists
-          ? 200
-          : 201,
-      ).json({
+      return res.status(201).json({
         success: true,
       });
     } catch (error) {
       console.error(
         'Kasa anahtar kaydetme hatası:',
-        error.message,
+        error?.code || error?.message,
       );
 
       return res.status(500).json({
@@ -291,22 +286,16 @@ router.get(
   '/key-envelope',
   verifyFirebaseUser,
   async (req, res) => {
-    try {
-      const uid =
-        req.firebaseUser.uid;
+    setPrivateResponseHeaders(res);
 
-const document =
-    await getFirestore()
-        .collection(
-            "private_vault_configs",
-        )
+    try {
+      const uid = req.firebaseUser.uid;
+
+      const document =
+        await getFirestore()
+          .collection('private_vault_configs')
           .doc(uid)
           .get();
-
-      res.set(
-        'Cache-Control',
-        'no-store',
-      );
 
       if (!document.exists) {
         return res.status(404).json({
@@ -315,21 +304,18 @@ const document =
         });
       }
 
-      const data =
-        document.data() || {};
+      const data = document.data() || {};
 
       return res.status(200).json({
         version: data.version,
-        iterations:
-          data.iterations,
+        iterations: data.iterations,
         salt: data.salt,
-        wrappedKey:
-          data.wrappedKey,
+        wrappedKey: data.wrappedKey,
       });
     } catch (error) {
       console.error(
         'Kasa anahtar okuma hatası:',
-        error.message,
+        error?.code || error?.message,
       );
 
       return res.status(500).json({
@@ -339,6 +325,7 @@ const document =
     }
   },
 );
+
 // ============================================================
 // ŞİFRELİ FOTOĞRAF YÜKLE
 // POST /api/vault/upload
@@ -346,24 +333,20 @@ const document =
 
 router.post(
   '/upload',
-
   verifyFirebaseUser,
-
   express.raw({
     type: 'application/octet-stream',
     limit: '15mb',
   }),
-
   async (req, res) => {
+    setPrivateResponseHeaders(res);
+
     try {
-      const encryptedBytes =
-        req.body;
+      const encryptedBytes = req.body;
 
       if (
-        !Buffer.isBuffer(
-          encryptedBytes,
-        ) ||
-        encryptedBytes.length === 0
+        !Buffer.isBuffer(encryptedBytes) ||
+        encryptedBytes.length < 33
       ) {
         return res.status(400).json({
           error:
@@ -371,14 +354,24 @@ router.post(
         });
       }
 
-      const uid =
-        req.firebaseUser.uid;
+      // Şifreli kasa dosyası AKV1 başlığıyla başlamalıdır.
+      if (
+        encryptedBytes[0] !== 0x41 ||
+        encryptedBytes[1] !== 0x4B ||
+        encryptedBytes[2] !== 0x56 ||
+        encryptedBytes[3] !== 0x31
+      ) {
+        return res.status(400).json({
+          error:
+            'Dosya şifreli kasa biçiminde değil.',
+        });
+      }
 
-      const fileId =
-        crypto.randomUUID();
+      const uid = req.firebaseUser.uid;
+      const fileId = crypto.randomUUID();
 
-      // Kullanıcı, dosya yolunu kendisi belirleyemez.
-      // Yol her zaman doğrulanan Firebase UID'sinden oluşur.
+      // Kullanıcı dosya yolunu belirleyemez. Yol her zaman
+      // doğrulanmış Firebase UID'sinden oluşturulur.
       const storagePath =
         `${uid}/${fileId}.vault`;
 
@@ -414,15 +407,14 @@ router.post(
       return res.status(201).json({
         success: true,
         fileId,
-        storagePath:
-          data.path,
+        storagePath: data.path,
         encryptedSize:
           encryptedBytes.length,
       });
     } catch (error) {
       console.error(
         'Vault yükleme hatası:',
-        error.message,
+        error?.code || error?.message,
       );
 
       return res.status(500).json({
@@ -444,13 +436,11 @@ router.use(
     res,
     next,
   ) => {
-    if (
-      error?.type ===
-      'entity.too.large'
-    ) {
+    if (error?.type === 'entity.too.large') {
       return res.status(413).json({
         error:
-          'Şifreli dosyanın boyutu 15 MB sınırını aşıyor.',
+          'Şifreli dosyanın boyutu '
+          + '15 MB sınırını aşıyor.',
       });
     }
 
