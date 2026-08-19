@@ -408,7 +408,11 @@ const notificationType =
 // ============================================================
 // 404
 // ============================================================
-
+// Özel Kasa rotaları
+app.use(
+  '/api/vault',
+  vaultRoutes,
+);
 app.use((req, res) => {
   res.status(404).json({
     success: false,
