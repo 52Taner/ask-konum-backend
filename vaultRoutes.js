@@ -1,5 +1,5 @@
 const express = require('express');
-const crypto = require('crypto');
+
 const { getAuth } = require('firebase-admin/auth');
 const {
   getFirestore,
@@ -143,6 +143,12 @@ function decodeBase64Url(value) {
   } catch (_) {
     return null;
   }
+}
+function isValidPhotoId(value) {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9_-]{22}$/.test(value)
+  );
 }
 
 // ============================================================
@@ -331,8 +337,10 @@ router.get(
 // POST /api/vault/upload
 // ============================================================
 
+
 router.post(
-  '/upload',
+  '/upload/:photoId',
+  verifyFirebaseUser,
   verifyFirebaseUser,
   express.raw({
     type: 'application/octet-stream',
@@ -367,13 +375,23 @@ router.post(
         });
       }
 
-      const uid = req.firebaseUser.uid;
-      const fileId = crypto.randomUUID();
+const uid =
+  req.firebaseUser.uid;
 
-      // Kullanıcı dosya yolunu belirleyemez. Yol her zaman
-      // doğrulanmış Firebase UID'sinden oluşturulur.
-      const storagePath =
-        `${uid}/${fileId}.vault`;
+const photoId =
+  (req.params.photoId || '').trim();
+
+if (!isValidPhotoId(photoId)) {
+  return res.status(400).json({
+    error:
+      'Geçersiz kasa fotoğraf kimliği.',
+  });
+}
+
+// Kullanıcı, dosya yolunu kendisi belirleyemez.
+// Yol doğrulanan Firebase UID'sinden oluşur.
+const storagePath =
+  `${uid}/${photoId}.vault`;
 
       const {
         data,
@@ -404,10 +422,11 @@ router.post(
         });
       }
 
-      return res.status(201).json({
-        success: true,
-        fileId,
-        storagePath: data.path,
+  return res.status(201).json({
+  success: true,
+  fileId: photoId,
+  storagePath:
+    data.path,
         encryptedSize:
           encryptedBytes.length,
       });
