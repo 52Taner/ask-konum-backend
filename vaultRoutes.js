@@ -551,7 +551,6 @@ router.get(
 router.post(
   '/upload/:photoId',
   verifyFirebaseUser,
-  verifyFirebaseUser,
   express.raw({
     type: 'application/octet-stream',
     limit: '15mb',

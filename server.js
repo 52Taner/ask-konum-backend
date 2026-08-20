@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const vaultRoutes =
   require('./vaultRoutes');
+const mediaRoutes =
+  require('./mediaRoutes');
 const {
   initializeApp,
   cert,
@@ -146,25 +148,25 @@ async function verifyFirebaseUser(
       });
     }
 
-    console.log(
-      "AUTH TOKEN GELDİ:",
-      idToken ? "EVET" : "HAYIR"
-    );
-
-    console.log(
-      "AUTH TOKEN UZUNLUĞU:",
-      idToken.length
-    );
-
     const decodedToken =
         await getAuth().verifyIdToken(
-          idToken
+          idToken,
+          true
         );
 
-    console.log(
-      "AUTH BAŞARILI UID:",
-      decodedToken.uid
-    );
+    const uid =
+        (decodedToken.uid || "").trim();
+
+    if (
+      !uid ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(uid)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+            "Geçersiz kullanıcı kimliği.",
+      });
+    }
 
     req.user = decodedToken;
 
@@ -194,11 +196,6 @@ app.post(
     try {
       const senderId =
           req.user.uid;
-
-      console.log(
-        "REQUEST BODY:",
-        req.body
-      );
 
       const {
         partnerId,
@@ -294,6 +291,17 @@ app.post(
       const partnerData =
           partnerDoc.data() || {};
 
+      if (
+        partnerData.partnerId !==
+        senderId
+      ) {
+        return res.status(403).json({
+          success: false,
+          error:
+              "Karşılıklı partner eşleşmesi doğrulanamadı.",
+        });
+      }
+
       const fcmToken =
           partnerData.fcmToken;
 
@@ -315,13 +323,13 @@ app.post(
  const notificationTitle =
     typeof title === "string" &&
     title.trim().length > 0
-        ? title.trim()
+        ? title.trim().substring(0, 100)
         : "Aşk Konumu ❤️";
 
 const notificationBody =
     typeof body === "string" &&
     body.trim().length > 0
-        ? body.trim()
+        ? body.trim().substring(0, 500)
         : "Yeni bir bildirimin var.";
 
 const notificationType =
@@ -404,7 +412,6 @@ const notificationType =
       return res.status(500).json({
         success: false,
         error:
-            error?.message ||
             "Bildirim gönderilemedi.",
       });
     }
@@ -418,6 +425,10 @@ const notificationType =
 app.use(
   '/api/vault',
   vaultRoutes,
+);
+app.use(
+  '/api/media',
+  mediaRoutes,
 );
 app.use((req, res) => {
   res.status(404).json({
