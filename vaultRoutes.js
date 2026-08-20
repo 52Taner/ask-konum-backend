@@ -333,7 +333,217 @@ router.get(
 );
 
 // ============================================================
+// ============================================================
+// ŞİFRELİ FOTOĞRAFLARI LİSTELE
+// GET /api/vault/photos
+// ============================================================
+
+router.get(
+  '/photos',
+  verifyFirebaseUser,
+  async (req, res) => {
+    setPrivateResponseHeaders(res);
+
+    try {
+      const uid =
+        req.firebaseUser.uid;
+
+      const {
+        data,
+        error,
+      } = await supabaseAdmin
+        .storage
+        .from(vaultBucket)
+        .list(
+          uid,
+          {
+            limit: 100,
+            offset: 0,
+            sortBy: {
+              column: 'created_at',
+              order: 'desc',
+            },
+          },
+        );
+
+      if (error) {
+        console.error(
+          'Supabase vault listeleme hatası:',
+          error.message,
+        );
+
+        return res.status(500).json({
+          error:
+            'Şifreli fotoğraflar listelenemedi.',
+        });
+      }
+
+      const photos =
+        (data || [])
+          .map((file) => {
+            const match =
+              /^([A-Za-z0-9_-]{22})\.vault$/
+                .exec(
+                  file.name || '',
+                );
+
+            if (!match || !file.id) {
+              return null;
+            }
+
+            const rawSize =
+              Number(
+                file.metadata?.size || 0,
+              );
+
+            return {
+              photoId: match[1],
+              encryptedSize:
+                Number.isFinite(rawSize)
+                  ? Math.max(
+                      0,
+                      Math.trunc(rawSize),
+                    )
+                  : 0,
+              createdAt:
+                file.created_at || null,
+            };
+          })
+          .filter(Boolean);
+
+      return res.status(200).json({
+        photos,
+      });
+    } catch (error) {
+      console.error(
+        'Vault listeleme hatası:',
+        error?.code || error?.message,
+      );
+
+      return res.status(500).json({
+        error:
+          'Şifreli fotoğraflar listelenemedi.',
+      });
+    }
+  },
+);
+// ============================================================
+// ŞİFRELİ FOTOĞRAFI İNDİR
+// GET /api/vault/photos/:photoId
+// ============================================================
+
+router.get(
+  '/photos/:photoId',
+  verifyFirebaseUser,
+  async (req, res) => {
+    setPrivateResponseHeaders(res);
+
+    try {
+      const uid =
+        req.firebaseUser.uid;
+
+      const photoId =
+        (
+          req.params.photoId ||
+          ''
+        ).trim();
+
+      if (!isValidPhotoId(photoId)) {
+        return res.status(400).json({
+          error:
+            'Geçersiz kasa fotoğraf kimliği.',
+        });
+      }
+
+      const storagePath =
+        `${uid}/${photoId}.vault`;
+
+      const {
+        data,
+        error,
+      } = await supabaseAdmin
+        .storage
+        .from(vaultBucket)
+        .download(storagePath);
+
+      if (error) {
+        const statusCode =
+          Number(
+            error.statusCode ||
+            error.status,
+          );
+
+        if (statusCode === 404) {
+          return res.status(404).json({
+            error:
+              'Şifreli fotoğraf bulunamadı.',
+          });
+        }
+
+        console.error(
+          'Supabase vault indirme hatası:',
+          error.message,
+        );
+
+        return res.status(500).json({
+          error:
+            'Şifreli fotoğraf indirilemedi.',
+        });
+      }
+
+      const encryptedBytes =
+        Buffer.from(
+          await data.arrayBuffer(),
+        );
+
+      if (
+        encryptedBytes.length < 33 ||
+        encryptedBytes[0] !== 0x41 ||
+        encryptedBytes[1] !== 0x4B ||
+        encryptedBytes[2] !== 0x56 ||
+        encryptedBytes[3] !== 0x31
+      ) {
+        return res.status(500).json({
+          error:
+            'Şifreli fotoğraf dosyası bozuk.',
+        });
+      }
+
+      res.set(
+        'Content-Type',
+        'application/octet-stream',
+      );
+
+      res.set(
+        'Content-Length',
+        String(
+          encryptedBytes.length,
+        ),
+      );
+
+      res.set(
+        'X-Content-Type-Options',
+        'nosniff',
+      );
+
+      return res.status(200).send(
+        encryptedBytes,
+      );
+    } catch (error) {
+      console.error(
+        'Vault indirme hatası:',
+        error?.code || error?.message,
+      );
+
+      return res.status(500).json({
+        error:
+          'Şifreli fotoğraf indirilemedi.',
+      });
+    }
+  },
+);
 // ŞİFRELİ FOTOĞRAF YÜKLE
+
 // POST /api/vault/upload
 // ============================================================
 
