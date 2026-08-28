@@ -4,6 +4,8 @@ const vaultRoutes =
   require('./vaultRoutes');
 const mediaRoutes =
   require('./mediaRoutes');
+const createSafePlaceRoutes =
+  require('./safePlaceRoutes');
 const {
   initializeApp,
   cert,
@@ -93,6 +95,9 @@ initializeApp({
 });
 
 const db = getFirestore();
+
+const safePlaceRoutes =
+  createSafePlaceRoutes({ db });
 
 // ============================================================
 // TEST
@@ -429,6 +434,11 @@ app.use(
 app.use(
   '/api/media',
   mediaRoutes,
+);
+app.use(
+  '/api/safe-places',
+  verifyFirebaseUser,
+  safePlaceRoutes,
 );
 app.use((req, res) => {
   res.status(404).json({
