@@ -30,6 +30,17 @@ const PLACE_DETAILS = {
   },
 };
 
+const ALLOWED_PLACE_EMOJIS = new Set([
+  "🏠",
+  "💼",
+  "🎓",
+  "❤️",
+  "⭐",
+  "📍",
+  "☕",
+  "🏋️",
+]);
+
 const MIN_RADIUS_METERS = 100;
 const MAX_RADIUS_METERS = 500;
 const DEFAULT_RADIUS_METERS = 150;
@@ -63,6 +74,17 @@ function isValidPlaceLabel(value) {
     normalized.length >= 1 &&
     normalized.length <= MAX_PLACE_LABEL_LENGTH
   );
+}
+
+function normalizePlaceEmoji(value, placeType) {
+  if (
+    typeof value === "string" &&
+    ALLOWED_PLACE_EMOJIS.has(value.trim())
+  ) {
+    return value.trim();
+  }
+
+  return PLACE_DETAILS[placeType].emoji;
 }
 
 function isFiniteNumber(value) {
@@ -192,7 +214,10 @@ function cleanPlaces(rawPlaces) {
         rawPlace.label,
         placeType
       ),
-      emoji: PLACE_DETAILS[placeType].emoji,
+      emoji: normalizePlaceEmoji(
+        rawPlace.emoji,
+        placeType
+      ),
     };
   }
 
@@ -357,7 +382,12 @@ function createSafePlaceRoutes({ db }) {
         });
       }
 
-      const { latitude, longitude, label } =
+      const {
+        latitude,
+        longitude,
+        label,
+        emoji,
+      } =
         req.body || {};
 
       if (
@@ -383,6 +413,8 @@ function createSafePlaceRoutes({ db }) {
 
       const normalizedLabel =
         normalizePlaceLabel(label, placeType);
+      const normalizedEmoji =
+        normalizePlaceEmoji(emoji, placeType);
 
       const reference = safePlaceRef(uid);
 
@@ -403,7 +435,7 @@ function createSafePlaceRoutes({ db }) {
             latitude,
             longitude,
             label: normalizedLabel,
-            emoji: PLACE_DETAILS[placeType].emoji,
+            emoji: normalizedEmoji,
           };
 
           delete insideStates[placeType];
@@ -431,7 +463,7 @@ function createSafePlaceRoutes({ db }) {
           latitude,
           longitude,
           label: normalizedLabel,
-          emoji: PLACE_DETAILS[placeType].emoji,
+          emoji: normalizedEmoji,
         },
       });
     } catch (error) {
@@ -649,6 +681,7 @@ function createSafePlaceRoutes({ db }) {
           };
           let arrival = null;
           let arrivalLabel = null;
+          let arrivalEmoji = null;
 
           for (const placeType of [
             "home",
@@ -723,6 +756,7 @@ function createSafePlaceRoutes({ db }) {
             if (arrival === null) {
               arrival = placeType;
               arrivalLabel = place.label;
+              arrivalEmoji = place.emoji;
             }
           }
 
@@ -744,6 +778,7 @@ function createSafePlaceRoutes({ db }) {
             enabled: true,
             arrival,
             arrivalLabel,
+            arrivalEmoji,
           };
         }
       );
@@ -761,12 +796,15 @@ function createSafePlaceRoutes({ db }) {
       const arrivalLabel =
         result.arrivalLabel ||
         placeDetails.label;
+      const arrivalEmoji =
+        result.arrivalEmoji ||
+        placeDetails.emoji;
 
       const messageId = await getMessaging().send({
         token: fcmToken,
         notification: {
           title:
-            `Varış Bildirimi ${placeDetails.emoji}`,
+            `Varış Bildirimi ${arrivalEmoji}`,
           body:
             `Partnerin “${arrivalLabel}” konumuna vardı.`,
         },
@@ -776,6 +814,7 @@ function createSafePlaceRoutes({ db }) {
           partnerId,
           placeType: result.arrival,
           placeLabel: arrivalLabel,
+          placeEmoji: arrivalEmoji,
         },
         webpush: {
           notification: {
