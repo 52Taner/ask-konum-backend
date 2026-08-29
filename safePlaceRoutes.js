@@ -199,6 +199,23 @@ function cleanPlaces(rawPlaces) {
   return places;
 }
 
+function cleanPlaceNotifications(rawNotifications) {
+  const notifications = {};
+  const source =
+    rawNotifications !== null &&
+    typeof rawNotifications === "object" &&
+    !Array.isArray(rawNotifications)
+      ? rawNotifications
+      : {};
+
+  for (const placeType of ALLOWED_PLACE_TYPES) {
+    notifications[placeType] =
+      source[placeType] !== false;
+  }
+
+  return notifications;
+}
+
 function createSafePlaceRoutes({ db }) {
   if (!db) {
     throw new Error(
@@ -227,6 +244,10 @@ function createSafePlaceRoutes({ db }) {
         radiusMeters: normalizeRadius(
           data.radiusMeters
         ),
+        placeNotifications:
+          cleanPlaceNotifications(
+            data.placeNotifications
+          ),
         places: cleanPlaces(data.places),
       });
     } catch (error) {
@@ -245,7 +266,11 @@ function createSafePlaceRoutes({ db }) {
   router.put("/settings", async (req, res) => {
     try {
       const uid = req.user.uid;
-      const { enabled, radiusMeters } =
+      const {
+        enabled,
+        radiusMeters,
+        placeNotifications,
+      } =
         req.body || {};
 
       if (typeof enabled !== "boolean") {
@@ -269,6 +294,10 @@ function createSafePlaceRoutes({ db }) {
 
       const normalizedRadius =
         normalizeRadius(radiusMeters);
+      const normalizedPlaceNotifications =
+        cleanPlaceNotifications(
+          placeNotifications
+        );
 
       await db.runTransaction(
         async (transaction) => {
@@ -283,6 +312,8 @@ function createSafePlaceRoutes({ db }) {
               ownerId: uid,
               enabled,
               radiusMeters: normalizedRadius,
+              placeNotifications:
+                normalizedPlaceNotifications,
               places: cleanPlaces(data.places),
               insideStates: {},
               candidateSinceMs: {},
@@ -298,6 +329,8 @@ function createSafePlaceRoutes({ db }) {
         success: true,
         enabled,
         radiusMeters: normalizedRadius,
+        placeNotifications:
+          normalizedPlaceNotifications,
       });
     } catch (error) {
       console.error(
@@ -593,6 +626,10 @@ function createSafePlaceRoutes({ db }) {
           const data = snapshot.data() || {};
           const enabled = data.enabled === true;
           const places = cleanPlaces(data.places);
+          const placeNotifications =
+            cleanPlaceNotifications(
+              data.placeNotifications
+            );
 
           if (!enabled || !Object.keys(places).length) {
             return {
@@ -620,7 +657,10 @@ function createSafePlaceRoutes({ db }) {
           ]) {
             const place = places[placeType];
 
-            if (!place) {
+            if (
+              !place ||
+              !placeNotifications[placeType]
+            ) {
               continue;
             }
 
